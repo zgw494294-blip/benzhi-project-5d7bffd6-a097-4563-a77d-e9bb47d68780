@@ -13,10 +13,7 @@ func (s *TxStore) InsertWell(w domain.MonitoringWell) error {
 		return err
 	}
 	_, err = s.tx.ExecContext(s.ctx, `INSERT INTO wells(id,campaign_id,well_code,location_label,planned_analytes,responsible_person,planned_sample_at) VALUES(?,?,?,?,?,?,?)`, w.ID, w.CampaignID, w.WellCode, w.LocationLabel, analytes, w.ResponsiblePerson, formatTime(w.PlannedSampleAt))
-	if err != nil {
-		return domain.WrapConflict("监测井编号或 ID 已存在")
-	}
-	return nil
+	return conflictOrContextErr(err, "监测井编号或 ID 已存在")
 }
 
 func (s *TxStore) WellExists(campaignID, wellID string) (bool, error) {

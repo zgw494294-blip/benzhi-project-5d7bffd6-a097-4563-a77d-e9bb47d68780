@@ -46,9 +46,8 @@ func (r *Repository) Execute(ctx context.Context, key, operation string, fn func
 	if err != nil {
 		return IdempotentResult{}, err
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO idempotency_records(idempotency_key,operation,response,created_at) VALUES(?,?,?,?)", key, operation, response, time.Now().UTC().Format(time.RFC3339Nano))
-	if err != nil {
-		return IdempotentResult{}, err
+	if _, err = tx.ExecContext(ctx, "INSERT INTO idempotency_records(idempotency_key,operation,response,created_at) VALUES(?,?,?,?)", key, operation, response, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return IdempotentResult{}, conflictOrContextErr(err, "idempotencyKey 已存在")
 	}
 	if err = tx.Commit(); err != nil {
 		return IdempotentResult{}, err

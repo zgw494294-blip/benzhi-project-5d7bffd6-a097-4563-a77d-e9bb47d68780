@@ -102,10 +102,7 @@ func (s *TxStore) InsertSample(sample domain.SampleRecord) error {
 		return err
 	}
 	_, err = s.tx.ExecContext(s.ctx, `INSERT INTO samples(id,campaign_id,well_id,sample_code,sample_kind,collected_at,field_measurements,preservation_method,preservation_expires_at,custody_events,revision) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, sample.ID, sample.CampaignID, nullString(sample.WellID), sample.SampleCode, sample.SampleKind, formatTime(sample.CollectedAt), measurements, sample.PreservationMethod, formatTime(sample.PreservationExpiresAt), custody, sample.Revision)
-	if err != nil {
-		return domain.WrapConflict("样品编号或 ID 已存在")
-	}
-	return nil
+	return conflictOrContextErr(err, "样品编号或 ID 已存在")
 }
 
 func (s *TxStore) ListSamples(campaignID string) ([]domain.SampleRecord, error) {

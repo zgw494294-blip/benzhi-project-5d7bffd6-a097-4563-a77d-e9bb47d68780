@@ -9,10 +9,7 @@ import (
 
 func (s *TxStore) InsertDataset(d domain.FrozenDataset) error {
 	_, err := s.tx.ExecContext(s.ctx, `INSERT INTO frozen_datasets(campaign_id,dataset_version,content,digest,frozen_at,frozen_by) VALUES(?,?,?,?,?,?)`, d.CampaignID, d.DatasetVersion, d.Content, d.Digest, formatTime(d.FrozenAt), d.FrozenBy)
-	if err != nil {
-		return domain.WrapConflict("冻结数据集已存在，不能覆盖")
-	}
-	return nil
+	return conflictOrContextErr(err, "冻结数据集已存在，不能覆盖")
 }
 
 func (s *TxStore) LoadDataset(campaignID string) (domain.FrozenDataset, error) {
@@ -45,10 +42,7 @@ func (s *TxStore) NextCredentialSerial() (int64, string, error) {
 
 func (s *TxStore) InsertCredential(c domain.ReleaseCredential) error {
 	_, err := s.tx.ExecContext(s.ctx, `INSERT INTO credentials(serial_number,id,campaign_id,dataset_version,dataset_digest,previous_digest,credential_digest,issued_at,issued_by) VALUES(?,?,?,?,?,?,?,?,?)`, c.SerialNumber, c.ID, c.CampaignID, c.DatasetVersion, c.DatasetDigest, c.PreviousDigest, c.CredentialDigest, formatTime(c.IssuedAt), c.IssuedBy)
-	if err != nil {
-		return domain.WrapConflict("该冻结数据集已签发凭据，不能覆盖")
-	}
-	return nil
+	return conflictOrContextErr(err, "该冻结数据集已签发凭据，不能覆盖")
 }
 
 func (s *TxStore) LoadCredential(campaignID string) (*domain.ReleaseCredential, error) {

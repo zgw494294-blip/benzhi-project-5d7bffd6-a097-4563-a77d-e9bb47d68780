@@ -9,10 +9,7 @@ import (
 
 func (s *TxStore) InsertCampaign(c domain.MonitoringCampaign) error {
 	_, err := s.tx.ExecContext(s.ctx, `INSERT INTO campaigns(id,campaign_code,window_start,window_end,rule_set_version,status,version,facts_revision,created_at,approved_at,approved_check_id,approved_check_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, c.ID, c.CampaignCode, formatTime(c.SamplingWindowStart), formatTime(c.SamplingWindowEnd), c.RuleSetVersion, c.Status, c.ExpectedVersion, c.FactsRevision, formatTime(c.CreatedAt), nullableTime(c.ApprovedAt), c.ApprovedCheckID, c.ApprovedCheckDigest)
-	if err != nil {
-		return domain.WrapConflict("批次编号或 ID 已存在")
-	}
-	return nil
+	return conflictOrContextErr(err, "批次编号或 ID 已存在")
 }
 
 func (s *TxStore) LoadCampaign(id string) (domain.MonitoringCampaign, error) {
