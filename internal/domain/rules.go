@@ -45,8 +45,11 @@ func EvaluateQuality(c MonitoringCampaign, wells []MonitoringWell, samples []Sam
 	}
 	results = append(results, QualityResult{RuleCode: RuleFieldBlank, Passed: blanks > 0, Severity: SeverityError, Message: choose(blanks > 0, "批次包含现场空白样", "批次缺少现场空白样")})
 	for _, s := range samples {
-		last := s.CustodyEvents[len(s.CustodyEvents)-1].OccurredAt
-		preserved := !last.After(s.PreservationExpiresAt)
+		preserved := false
+		if len(s.CustodyEvents) > 0 {
+			last := s.CustodyEvents[len(s.CustodyEvents)-1].OccurredAt
+			preserved = !last.After(s.PreservationExpiresAt)
+		}
 		results = append(results, QualityResult{RuleCode: RulePreservation, Passed: preserved, Severity: SeverityError, SubjectID: s.ID, Message: choose(preserved, "交接在保存期限内完成", "交接完成时间超过保存期限")})
 		continuous := ValidateCustody(s.CustodyEvents, s.CollectedAt) == nil
 		results = append(results, QualityResult{RuleCode: RuleCustody, Passed: continuous, Severity: SeverityError, SubjectID: s.ID, Message: choose(continuous, "交接链连续", "交接链不连续")})
