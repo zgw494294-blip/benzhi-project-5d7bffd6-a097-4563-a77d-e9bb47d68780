@@ -3,6 +3,7 @@ package audit
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -103,7 +104,44 @@ func VerifyCredentialChain(target domain.ReleaseCredential, credentials []domain
 			r.Valid = false
 		}
 	}
+	if r.Valid {
+		if chainFailure := verifyCredentialIssuedEvent(events, target); chainFailure != nil {
+			r.Items.AuditChain = false
+			fail(target.SerialNumber, chainFailure.Code, chainFailure.Expected, chainFailure.Actual, chainFailure.Message)
+			r.FirstFailure.AuditSequence = chainFailure.Sequence
+		}
+	}
 	return r
+}
+
+type credentialIssuedPayload struct {
+	CredentialID     string `json:"credentialId"`
+	SerialNumber     int64  `json:"serialNumber"`
+	CredentialDigest string `json:"credentialDigest"`
+}
+
+func verifyCredentialIssuedEvent(events []store.AuditEvent, target domain.ReleaseCredential) *ChainFailure {
+	if len(events) == 0 {
+		return nil
+	}
+	tail := events[len(events)-1]
+	if tail.EventType != "CREDENTIAL_ISSUED" {
+		return &ChainFailure{Sequence: tail.Sequence, Code: "CREDENTIAL_ISSUED_MISSING", Expected: "CREDENTIAL_ISSUED", Actual: tail.EventType, Message: "审计链尾事件类型不是 CREDENTIAL_ISSUED"}
+	}
+	var payload credentialIssuedPayload
+	if err := json.Unmarshal(tail.Payload, &payload); err != nil {
+		return &ChainFailure{Sequence: tail.Sequence, Code: "CREDENTIAL_ISSUED_PAYLOAD_INVALID", Expected: "可解析的 credentialId/serialNumber/credentialDigest", Actual: string(tail.Payload), Message: "凭据签发事件 payload 无法解析"}
+	}
+	if payload.CredentialID != target.ID {
+		return &ChainFailure{Sequence: tail.Sequence, Code: "CREDENTIAL_ISSUED_MISMATCH", Expected: target.ID, Actual: payload.CredentialID, Message: "审计尾事件 credentialId 与目标凭据不一致"}
+	}
+	if payload.SerialNumber != target.SerialNumber {
+		return &ChainFailure{Sequence: tail.Sequence, Code: "CREDENTIAL_ISSUED_MISMATCH", Expected: fmt.Sprint(target.SerialNumber), Actual: fmt.Sprint(payload.SerialNumber), Message: "审计尾事件 serialNumber 与目标凭据不一致"}
+	}
+	if payload.CredentialDigest != target.CredentialDigest {
+		return &ChainFailure{Sequence: tail.Sequence, Code: "CREDENTIAL_ISSUED_MISMATCH", Expected: target.CredentialDigest, Actual: payload.CredentialDigest, Message: "审计尾事件 credentialDigest 与目标凭据不一致"}
+	}
+	return nil
 }
 
 type Verification struct {
