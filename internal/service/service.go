@@ -42,6 +42,18 @@ func (s *Service) rememberDetail(campaignID string, data []byte) {
 	s.detailCache[campaignID] = append([]byte(nil), data...)
 }
 
+// invalidateDetail drops any cached campaign detail so the next query
+// rebuilds it from the store. It is called after a mutation commits but
+// before the mutation returns to the caller, which keeps the invalidation
+// ordered after the commit and prevents a stale pre-write detail from
+// surviving the mutation. Failed mutations leave the cache untouched so a
+// previously cached valid result remains usable.
+func (s *Service) invalidateDetail(campaignID string) {
+	s.detailMu.Lock()
+	defer s.detailMu.Unlock()
+	delete(s.detailCache, campaignID)
+}
+
 func randomID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -50,7 +62,7 @@ func randomID() string {
 	return hex.EncodeToString(b)
 }
 
-func execute[T any](ctx context.Context, s *Service, key, operation string, fn func(*store.TxStore) (T, error)) (T, error) {
+func execute[T any](ctx context.Context, s *Service, campaignID, key, operation string, fn func(*store.TxStore) (T, error)) (T, error) {
 	var zero T
 	result, err := s.repo.Execute(ctx, key, operation, func(tx *store.TxStore) (json.RawMessage, error) {
 		value, err := fn(tx)
@@ -65,15 +77,22 @@ func execute[T any](ctx context.Context, s *Service, key, operation string, fn f
 	if err = json.Unmarshal(result.Response, &zero); err != nil {
 		return zero, err
 	}
-	if result.Replayed {
-		switch value := any(&zero).(type) {
-		case *MutationResult:
-			value.Replayed = true
-		case *BatchWellResult:
-			value.Replayed = true
-		case *CheckResult:
-			value.Replayed = true
-		}
+	if !result.Replayed {
+		// Drop any cached detail so the next CampaignDetail reads the newly
+		// committed state. This runs before the mutation returns to the
+		// caller, which orders the invalidation after the commit and keeps a
+		// concurrent query that started before the write from overwriting the
+		// post-write state with a stale snapshot. Failed mutations leave the
+		// cache untouched so a previously cached valid result remains usable.
+		s.invalidateDetail(campaignID)
+	}
+	switch value := any(&zero).(type) {
+	case *MutationResult:
+		value.Replayed = result.Replayed
+	case *BatchWellResult:
+		value.Replayed = result.Replayed
+	case *CheckResult:
+		value.Replayed = result.Replayed
 	}
 	return zero, nil
 }

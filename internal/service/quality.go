@@ -21,7 +21,7 @@ func (s *Service) RunQualityCheck(ctx context.Context, campaignID string, cmd Ru
 		return CheckResult{}, err
 	}
 	checkID, now := s.newID(), s.now()
-	return execute(ctx, s, cmd.IdempotencyKey, "quality_check:"+campaignID, func(tx *store.TxStore) (CheckResult, error) {
+	return execute(ctx, s, campaignID, cmd.IdempotencyKey, "quality_check:"+campaignID, func(tx *store.TxStore) (CheckResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return CheckResult{}, err
@@ -81,7 +81,7 @@ func (s *Service) ReopenCheck(ctx context.Context, campaignID string, cmd Reopen
 		return MutationResult{}, domain.FieldError("reason", "退回原因不能为空")
 	}
 	now := s.now()
-	return execute(ctx, s, cmd.IdempotencyKey, "reopen_check:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
+	return execute(ctx, s, campaignID, cmd.IdempotencyKey, "reopen_check:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return MutationResult{}, err
@@ -112,7 +112,7 @@ func (s *Service) AddEvidence(ctx context.Context, campaignID, exceptionID strin
 		return MutationResult{}, err
 	}
 	now := s.now()
-	return execute(ctx, s, cmd.IdempotencyKey, fmt.Sprintf("add_evidence:%s:%s", campaignID, exceptionID), func(tx *store.TxStore) (MutationResult, error) {
+	return execute(ctx, s, campaignID, cmd.IdempotencyKey, fmt.Sprintf("add_evidence:%s:%s", campaignID, exceptionID), func(tx *store.TxStore) (MutationResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return MutationResult{}, err
@@ -154,7 +154,7 @@ func (s *Service) WithdrawEvidence(ctx context.Context, campaignID, exceptionID 
 		return MutationResult{}, &domain.DomainError{Code: domain.ErrStaleVersion, Field: "expectedEvidenceRevision", Message: "路径 revision 与 expectedEvidenceRevision 不一致"}
 	}
 	now := s.now()
-	return execute(ctx, s, cmd.IdempotencyKey, fmt.Sprintf("withdraw_evidence:%s:%s:%d", campaignID, exceptionID, revision), func(tx *store.TxStore) (MutationResult, error) {
+	return execute(ctx, s, campaignID, cmd.IdempotencyKey, fmt.Sprintf("withdraw_evidence:%s:%s:%d", campaignID, exceptionID, revision), func(tx *store.TxStore) (MutationResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return MutationResult{}, err
@@ -197,7 +197,7 @@ func (s *Service) ReviewException(ctx context.Context, campaignID, exceptionID s
 	if cmd.EvidenceRevision == 0 {
 		cmd.EvidenceRevision = cmd.Revision
 	}
-	return execute(ctx, s, cmd.IdempotencyKey, fmt.Sprintf("review_exception:%s:%s", campaignID, exceptionID), func(tx *store.TxStore) (MutationResult, error) {
+	return execute(ctx, s, campaignID, cmd.IdempotencyKey, fmt.Sprintf("review_exception:%s:%s", campaignID, exceptionID), func(tx *store.TxStore) (MutationResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return MutationResult{}, err

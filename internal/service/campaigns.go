@@ -15,7 +15,7 @@ func (s *Service) CreateCampaign(ctx context.Context, cmd CreateCampaignCommand)
 	}
 	id := s.newID()
 	now := s.now()
-	return execute(ctx, s, cmd.IdempotencyKey, "create_campaign", func(tx *store.TxStore) (MutationResult, error) {
+	return execute(ctx, s, id, cmd.IdempotencyKey, "create_campaign", func(tx *store.TxStore) (MutationResult, error) {
 		c, err := domain.NewCampaign(id, cmd.CampaignCode, cmd.SamplingWindowStart, cmd.SamplingWindowEnd, cmd.RuleSetVersion, now)
 		if err != nil {
 			return MutationResult{}, err
@@ -51,7 +51,7 @@ func (s *Service) AddWellsBatch(ctx context.Context, campaignID string, cmd AddW
 		ids[i] = s.newID()
 	}
 	now := s.now()
-	return execute(ctx, s, cmd.IdempotencyKey, "add_wells_batch:"+campaignID, func(tx *store.TxStore) (BatchWellResult, error) {
+	return execute(ctx, s, campaignID, cmd.IdempotencyKey, "add_wells_batch:"+campaignID, func(tx *store.TxStore) (BatchWellResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return BatchWellResult{}, err
@@ -100,7 +100,7 @@ func (s *Service) AddWell(ctx context.Context, campaignID string, cmd AddWellCom
 	}
 	id := s.newID()
 	now := s.now()
-	return execute(ctx, s, cmd.IdempotencyKey, "add_well:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
+	return execute(ctx, s, campaignID, cmd.IdempotencyKey, "add_well:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return MutationResult{}, err

@@ -13,7 +13,7 @@ func (s *Service) AddSample(ctx context.Context, campaignID string, cmd AddSampl
 	}
 	id := s.newID()
 	now := s.now()
-	return execute(ctx, s, cmd.IdempotencyKey, "add_sample:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
+	return execute(ctx, s, campaignID, cmd.IdempotencyKey, "add_sample:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return MutationResult{}, err
@@ -69,7 +69,7 @@ func (s *Service) ReviseSample(ctx context.Context, campaignID, sampleID string,
 		return MutationResult{}, domain.FieldError("body", "至少需要修改一项样品事实")
 	}
 	now := s.now()
-	return execute(ctx, s, cmd.IdempotencyKey, "revise_sample:"+campaignID+":"+sampleID, func(tx *store.TxStore) (MutationResult, error) {
+	return execute(ctx, s, campaignID, cmd.IdempotencyKey, "revise_sample:"+campaignID+":"+sampleID, func(tx *store.TxStore) (MutationResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return MutationResult{}, err

@@ -98,7 +98,7 @@ func (s *Service) Approve(ctx context.Context, campaignID string, cmd ApproveCom
 		return MutationResult{}, err
 	}
 	now := s.now()
-	return execute(ctx, s, cmd.IdempotencyKey, "approve:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
+	return execute(ctx, s, campaignID, cmd.IdempotencyKey, "approve:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return MutationResult{}, err
@@ -141,7 +141,7 @@ func (s *Service) Freeze(ctx context.Context, campaignID string, cmd FreezeComma
 		return MutationResult{}, err
 	}
 	now := s.now()
-	return execute(ctx, s, cmd.IdempotencyKey, "freeze:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
+	return execute(ctx, s, campaignID, cmd.IdempotencyKey, "freeze:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return MutationResult{}, err
@@ -189,7 +189,7 @@ func (s *Service) IssueCredential(ctx context.Context, campaignID string, cmd Is
 	}
 	now := s.now()
 	id := s.newID()
-	return execute(ctx, s, cmd.IdempotencyKey, "issue_credential:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
+	return execute(ctx, s, campaignID, cmd.IdempotencyKey, "issue_credential:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return MutationResult{}, err
