@@ -27,9 +27,16 @@ type ApprovalReadiness struct {
 	Blockers                 []ApprovalBlocker `json:"blockers"`
 }
 
+// readinessCacheEntry stores per-actor readiness results for a campaign. The
+// version tracks the campaign ExpectedVersion at cache time so any mutation
+// (which bumps ExpectedVersion) invalidates every actor's entries for that
+// campaign. readiness results depend on the requesting actor because
+// CHECKER_APPROVER_CONFLICT and EVIDENCE_REVIEWER_APPROVER_CONFLICT are
+// evaluated per actor, so the cache must key by actor to avoid leaking one
+// actor's blockers into another actor's result.
 type readinessCacheEntry struct {
 	version int64
-	value   ApprovalReadiness
+	byActor map[string]ApprovalReadiness
 }
 
 func cloneReadiness(value ApprovalReadiness) ApprovalReadiness {
@@ -37,20 +44,29 @@ func cloneReadiness(value ApprovalReadiness) ApprovalReadiness {
 	return value
 }
 
-func (s *Service) cachedReadiness(campaignID string, version int64) (ApprovalReadiness, bool) {
+func (s *Service) cachedReadiness(campaignID, actor string, version int64) (ApprovalReadiness, bool) {
 	s.readinessMu.RLock()
 	defer s.readinessMu.RUnlock()
 	entry, ok := s.readinessCache[campaignID]
 	if !ok || entry.version != version {
 		return ApprovalReadiness{}, false
 	}
-	return cloneReadiness(entry.value), true
+	value, ok := entry.byActor[actor]
+	if !ok {
+		return ApprovalReadiness{}, false
+	}
+	return cloneReadiness(value), true
 }
 
-func (s *Service) rememberReadiness(campaignID string, version int64, value ApprovalReadiness) {
+func (s *Service) rememberReadiness(campaignID, actor string, version int64, value ApprovalReadiness) {
 	s.readinessMu.Lock()
 	defer s.readinessMu.Unlock()
-	s.readinessCache[campaignID] = readinessCacheEntry{version: version, value: cloneReadiness(value)}
+	entry, ok := s.readinessCache[campaignID]
+	if !ok || entry.version != version {
+		entry = readinessCacheEntry{version: version, byActor: make(map[string]ApprovalReadiness)}
+	}
+	entry.byActor[actor] = cloneReadiness(value)
+	s.readinessCache[campaignID] = entry
 }
 
 func assessApproval(c domain.MonitoringCampaign, check *domain.QualityCheck, exceptions []domain.QualityException, actor string) ApprovalReadiness {
@@ -103,7 +119,7 @@ func (s *Service) ApprovalReadiness(ctx context.Context, campaignID, actor strin
 		if err != nil {
 			return err
 		}
-		if cached, ok := s.cachedReadiness(c.ID, c.ExpectedVersion); ok {
+		if cached, ok := s.cachedReadiness(c.ID, actor, c.ExpectedVersion); ok {
 			result = cached
 			return nil
 		}
@@ -119,7 +135,7 @@ func (s *Service) ApprovalReadiness(ctx context.Context, campaignID, actor strin
 			return err
 		}
 		result = assessApproval(c, check, exceptions, actor)
-		s.rememberReadiness(c.ID, c.ExpectedVersion, result)
+		s.rememberReadiness(c.ID, actor, c.ExpectedVersion, result)
 		return nil
 	})
 	return result, err
