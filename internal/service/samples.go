@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	"groundwater-release/internal/domain"
 	"groundwater-release/internal/store"
@@ -29,8 +30,12 @@ func (s *Service) AddSample(ctx context.Context, campaignID string, cmd AddSampl
 			}
 		}
 		sample := domain.SampleRecord{ID: id, CampaignID: c.ID, WellID: cmd.WellID, SampleCode: cmd.SampleCode, SampleKind: cmd.SampleKind, CollectedAt: cmd.CollectedAt.UTC(), FieldMeasurements: cmd.FieldMeasurements, PreservationMethod: cmd.PreservationMethod, PreservationExpiresAt: cmd.PreservationExpiresAt.UTC(), CustodyEvents: cmd.CustodyEvents, Revision: 1}
-		if err = sample.Validate(c, wellExists); err != nil {
-			return MutationResult{}, err
+		validationKey := strings.TrimSpace(sample.SampleCode)
+		if !s.sampleValidationKnown(validationKey) {
+			if err = sample.Validate(c, wellExists); err != nil {
+				return MutationResult{}, err
+			}
+			s.rememberSampleValidation(validationKey)
 		}
 		if err = c.BeginRecording(); err != nil {
 			return MutationResult{}, err

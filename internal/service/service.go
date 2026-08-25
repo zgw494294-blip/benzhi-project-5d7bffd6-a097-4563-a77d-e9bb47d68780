@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"groundwater-release/internal/audit"
@@ -12,13 +13,33 @@ import (
 )
 
 type Service struct {
-	repo  *store.Repository
-	now   func() time.Time
-	newID func() string
+	repo               *store.Repository
+	now                func() time.Time
+	newID              func() string
+	validationMu       sync.RWMutex
+	validatedSampleIDs map[string]struct{}
 }
 
 func New(repo *store.Repository) *Service {
-	return &Service{repo: repo, now: time.Now, newID: randomID}
+	return &Service{
+		repo:               repo,
+		now:                time.Now,
+		newID:              randomID,
+		validatedSampleIDs: map[string]struct{}{},
+	}
+}
+
+func (s *Service) sampleValidationKnown(sampleCode string) bool {
+	s.validationMu.RLock()
+	defer s.validationMu.RUnlock()
+	_, ok := s.validatedSampleIDs[sampleCode]
+	return ok
+}
+
+func (s *Service) rememberSampleValidation(sampleCode string) {
+	s.validationMu.Lock()
+	defer s.validationMu.Unlock()
+	s.validatedSampleIDs[sampleCode] = struct{}{}
 }
 
 func randomID() string {
