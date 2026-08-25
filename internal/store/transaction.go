@@ -11,8 +11,9 @@ import (
 )
 
 type TxStore struct {
-	tx  *sql.Tx
-	ctx context.Context
+	tx   *sql.Tx
+	ctx  context.Context
+	repo *Repository
 }
 
 type IdempotentResult struct {
@@ -41,7 +42,7 @@ func (r *Repository) Execute(ctx context.Context, key, operation string, fn func
 	if !errors.Is(err, sql.ErrNoRows) {
 		return IdempotentResult{}, err
 	}
-	ts := &TxStore{tx: tx, ctx: ctx}
+	ts := &TxStore{tx: tx, ctx: ctx, repo: r}
 	response, err = fn(ts)
 	if err != nil {
 		return IdempotentResult{}, err
@@ -62,7 +63,7 @@ func (r *Repository) View(ctx context.Context, fn func(*TxStore) error) error {
 		return err
 	}
 	defer tx.Rollback()
-	if err = fn(&TxStore{tx: tx, ctx: ctx}); err != nil {
+	if err = fn(&TxStore{tx: tx, ctx: ctx, repo: r}); err != nil {
 		return err
 	}
 	return tx.Commit()

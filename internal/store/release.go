@@ -71,7 +71,11 @@ func (s *TxStore) PreviousCredential(serial int64) (*domain.ReleaseCredential, e
 	}
 	var c domain.ReleaseCredential
 	var issued string
-	err := s.tx.QueryRowContext(s.ctx, `SELECT id,campaign_id,serial_number,dataset_version,dataset_digest,previous_digest,credential_digest,issued_at,issued_by FROM credentials WHERE serial_number=?`, serial-1).Scan(&c.ID, &c.CampaignID, &c.SerialNumber, &c.DatasetVersion, &c.DatasetDigest, &c.PreviousDigest, &c.CredentialDigest, &issued, &c.IssuedBy)
+	stmt, err := s.repo.previousCredentialStatement(s.ctx, s.tx)
+	if err != nil {
+		return nil, err
+	}
+	err = stmt.QueryRowContext(s.ctx, serial-1).Scan(&c.ID, &c.CampaignID, &c.SerialNumber, &c.DatasetVersion, &c.DatasetDigest, &c.PreviousDigest, &c.CredentialDigest, &issued, &c.IssuedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
