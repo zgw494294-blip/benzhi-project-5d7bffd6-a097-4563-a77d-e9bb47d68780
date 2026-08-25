@@ -27,6 +27,32 @@ type ApprovalReadiness struct {
 	Blockers                 []ApprovalBlocker `json:"blockers"`
 }
 
+type readinessCacheEntry struct {
+	version int64
+	value   ApprovalReadiness
+}
+
+func cloneReadiness(value ApprovalReadiness) ApprovalReadiness {
+	value.Blockers = append([]ApprovalBlocker(nil), value.Blockers...)
+	return value
+}
+
+func (s *Service) cachedReadiness(campaignID string, version int64) (ApprovalReadiness, bool) {
+	s.readinessMu.RLock()
+	defer s.readinessMu.RUnlock()
+	entry, ok := s.readinessCache[campaignID]
+	if !ok || entry.version != version {
+		return ApprovalReadiness{}, false
+	}
+	return cloneReadiness(entry.value), true
+}
+
+func (s *Service) rememberReadiness(campaignID string, version int64, value ApprovalReadiness) {
+	s.readinessMu.Lock()
+	defer s.readinessMu.Unlock()
+	s.readinessCache[campaignID] = readinessCacheEntry{version: version, value: cloneReadiness(value)}
+}
+
 func assessApproval(c domain.MonitoringCampaign, check *domain.QualityCheck, exceptions []domain.QualityException, actor string) ApprovalReadiness {
 	r := ApprovalReadiness{CampaignID: c.ID, Version: c.ExpectedVersion, Blockers: []ApprovalBlocker{}}
 	if actor == "" {
@@ -71,10 +97,15 @@ func assessApproval(c domain.MonitoringCampaign, check *domain.QualityCheck, exc
 
 func (s *Service) ApprovalReadiness(ctx context.Context, campaignID, actor string) (ApprovalReadiness, error) {
 	var result ApprovalReadiness
+	actor = strings.TrimSpace(actor)
 	err := s.repo.View(ctx, func(tx *store.TxStore) error {
 		c, err := tx.LoadCampaign(campaignID)
 		if err != nil {
 			return err
+		}
+		if cached, ok := s.cachedReadiness(c.ID, c.ExpectedVersion); ok {
+			result = cached
+			return nil
 		}
 		var check *domain.QualityCheck
 		q, qerr := tx.LoadQualityCheck(c.ID)
@@ -87,7 +118,8 @@ func (s *Service) ApprovalReadiness(ctx context.Context, campaignID, actor strin
 		if err != nil {
 			return err
 		}
-		result = assessApproval(c, check, exceptions, strings.TrimSpace(actor))
+		result = assessApproval(c, check, exceptions, actor)
+		s.rememberReadiness(c.ID, c.ExpectedVersion, result)
 		return nil
 	})
 	return result, err
