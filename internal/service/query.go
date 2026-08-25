@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 
 	"groundwater-release/internal/audit"
 	"groundwater-release/internal/domain"
@@ -15,6 +16,16 @@ type CampaignDetail struct {
 }
 
 func (s *Service) CampaignDetail(ctx context.Context, campaignID string) (CampaignDetail, error) {
+	if err := ctx.Err(); err != nil {
+		return CampaignDetail{}, err
+	}
+	if cached, ok := s.cachedDetail(campaignID); ok {
+		var detail CampaignDetail
+		if err := json.Unmarshal(cached, &detail); err != nil {
+			return CampaignDetail{}, err
+		}
+		return detail, nil
+	}
 	snapshot, err := s.repo.Snapshot(ctx, campaignID)
 	if err != nil {
 		return CampaignDetail{}, err
@@ -51,7 +62,13 @@ func (s *Service) CampaignDetail(ctx context.Context, campaignID string) (Campai
 			verification.Message = "完整性校验通过"
 		}
 	}
-	return CampaignDetail{CampaignSnapshot: snapshot, PendingExceptions: pending, Verification: verification}, nil
+	detail := CampaignDetail{CampaignSnapshot: snapshot, PendingExceptions: pending, Verification: verification}
+	encoded, err := json.Marshal(detail)
+	if err != nil {
+		return CampaignDetail{}, err
+	}
+	s.rememberDetail(campaignID, encoded)
+	return detail, nil
 }
 
 func (s *Service) CredentialVerification(ctx context.Context, campaignID string) (audit.FullChainVerification, error) {

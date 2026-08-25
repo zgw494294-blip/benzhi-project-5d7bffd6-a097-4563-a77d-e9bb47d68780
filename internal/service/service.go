@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"groundwater-release/internal/audit"
@@ -12,13 +13,33 @@ import (
 )
 
 type Service struct {
-	repo  *store.Repository
-	now   func() time.Time
-	newID func() string
+	repo        *store.Repository
+	now         func() time.Time
+	newID       func() string
+	detailMu    sync.RWMutex
+	detailCache map[string][]byte
 }
 
 func New(repo *store.Repository) *Service {
-	return &Service{repo: repo, now: time.Now, newID: randomID}
+	return &Service{
+		repo:        repo,
+		now:         time.Now,
+		newID:       randomID,
+		detailCache: make(map[string][]byte),
+	}
+}
+
+func (s *Service) cachedDetail(campaignID string) ([]byte, bool) {
+	s.detailMu.RLock()
+	defer s.detailMu.RUnlock()
+	data, ok := s.detailCache[campaignID]
+	return append([]byte(nil), data...), ok
+}
+
+func (s *Service) rememberDetail(campaignID string, data []byte) {
+	s.detailMu.Lock()
+	defer s.detailMu.Unlock()
+	s.detailCache[campaignID] = append([]byte(nil), data...)
 }
 
 func randomID() string {
