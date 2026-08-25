@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"groundwater-release/internal/audit"
@@ -12,13 +13,15 @@ import (
 )
 
 type Service struct {
-	repo  *store.Repository
-	now   func() time.Time
-	newID func() string
+	repo            *store.Repository
+	now             func() time.Time
+	newID           func() string
+	replayMu        sync.Mutex
+	replayResponses map[string]json.RawMessage
 }
 
 func New(repo *store.Repository) *Service {
-	return &Service{repo: repo, now: time.Now, newID: randomID}
+	return &Service{repo: repo, now: time.Now, newID: randomID, replayResponses: map[string]json.RawMessage{}}
 }
 
 func randomID() string {
@@ -31,6 +34,13 @@ func randomID() string {
 
 func execute[T any](ctx context.Context, s *Service, key, operation string, fn func(*store.TxStore) (T, error)) (T, error) {
 	var zero T
+	if response, ok := s.cachedReplay(key); ok {
+		if err := json.Unmarshal(response, &zero); err != nil {
+			return zero, err
+		}
+		markReplayed(&zero)
+		return zero, nil
+	}
 	result, err := s.repo.Execute(ctx, key, operation, func(tx *store.TxStore) (json.RawMessage, error) {
 		value, err := fn(tx)
 		if err != nil {
@@ -44,17 +54,35 @@ func execute[T any](ctx context.Context, s *Service, key, operation string, fn f
 	if err = json.Unmarshal(result.Response, &zero); err != nil {
 		return zero, err
 	}
+	s.rememberReplay(key, result.Response)
 	if result.Replayed {
-		switch value := any(&zero).(type) {
-		case *MutationResult:
-			value.Replayed = true
-		case *BatchWellResult:
-			value.Replayed = true
-		case *CheckResult:
-			value.Replayed = true
-		}
+		markReplayed(&zero)
 	}
 	return zero, nil
+}
+
+func (s *Service) cachedReplay(key string) (json.RawMessage, bool) {
+	s.replayMu.Lock()
+	defer s.replayMu.Unlock()
+	response, ok := s.replayResponses[key]
+	return append(json.RawMessage(nil), response...), ok
+}
+
+func (s *Service) rememberReplay(key string, response json.RawMessage) {
+	s.replayMu.Lock()
+	defer s.replayMu.Unlock()
+	s.replayResponses[key] = append(json.RawMessage(nil), response...)
+}
+
+func markReplayed[T any](value *T) {
+	switch result := any(value).(type) {
+	case *MutationResult:
+		result.Replayed = true
+	case *BatchWellResult:
+		result.Replayed = true
+	case *CheckResult:
+		result.Replayed = true
+	}
 }
 
 func appendAudit(tx *store.TxStore, campaignID, eventType, actor string, payload any, now time.Time) error {
