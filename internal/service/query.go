@@ -14,6 +14,12 @@ type CampaignDetail struct {
 	Verification      audit.Verification `json:"verification"`
 }
 
+type verificationCall struct {
+	done   chan struct{}
+	report audit.FullChainVerification
+	err    error
+}
+
 func (s *Service) CampaignDetail(ctx context.Context, campaignID string) (CampaignDetail, error) {
 	snapshot, err := s.repo.Snapshot(ctx, campaignID)
 	if err != nil {
@@ -55,6 +61,29 @@ func (s *Service) CampaignDetail(ctx context.Context, campaignID string) (Campai
 }
 
 func (s *Service) CredentialVerification(ctx context.Context, campaignID string) (audit.FullChainVerification, error) {
+	s.verificationMu.Lock()
+	if call, ok := s.verificationCalls[campaignID]; ok {
+		s.verificationMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return audit.FullChainVerification{}, ctx.Err()
+		case <-call.done:
+			return call.report, call.err
+		}
+	}
+	call := &verificationCall{done: make(chan struct{})}
+	s.verificationCalls[campaignID] = call
+	s.verificationMu.Unlock()
+
+	call.report, call.err = s.loadCredentialVerification(ctx, campaignID)
+	s.verificationMu.Lock()
+	delete(s.verificationCalls, campaignID)
+	close(call.done)
+	s.verificationMu.Unlock()
+	return call.report, call.err
+}
+
+func (s *Service) loadCredentialVerification(ctx context.Context, campaignID string) (audit.FullChainVerification, error) {
 	var report audit.FullChainVerification
 	err := s.repo.View(ctx, func(tx *store.TxStore) error {
 		if _, err := tx.LoadCampaign(campaignID); err != nil {
