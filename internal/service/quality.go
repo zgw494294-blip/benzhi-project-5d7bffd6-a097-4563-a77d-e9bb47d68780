@@ -21,7 +21,7 @@ func (s *Service) RunQualityCheck(ctx context.Context, campaignID string, cmd Ru
 		return CheckResult{}, err
 	}
 	checkID, now := s.newID(), s.now()
-	return execute(ctx, s, cmd.IdempotencyKey, "quality_check:"+campaignID, func(tx *store.TxStore) (CheckResult, error) {
+	result, err := execute(ctx, s, cmd.IdempotencyKey, "quality_check:"+campaignID, func(tx *store.TxStore) (CheckResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return CheckResult{}, err
@@ -70,6 +70,10 @@ func (s *Service) RunQualityCheck(ctx context.Context, campaignID string, cmd Ru
 		}
 		return CheckResult{MutationResult: MutationResult{CampaignID: c.ID, ResourceID: check.ID, Status: c.Status, Version: c.ExpectedVersion, CheckID: check.ID, CheckDigest: check.ResultDigest}, Check: check, Exceptions: exceptions}, nil
 	})
+	if err == nil {
+		s.forgetCheckHistory(campaignID)
+	}
+	return result, err
 }
 
 func (s *Service) ReopenCheck(ctx context.Context, campaignID string, cmd ReopenCheckCommand) (MutationResult, error) {
@@ -81,7 +85,7 @@ func (s *Service) ReopenCheck(ctx context.Context, campaignID string, cmd Reopen
 		return MutationResult{}, domain.FieldError("reason", "退回原因不能为空")
 	}
 	now := s.now()
-	return execute(ctx, s, cmd.IdempotencyKey, "reopen_check:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
+	result, err := execute(ctx, s, cmd.IdempotencyKey, "reopen_check:"+campaignID, func(tx *store.TxStore) (MutationResult, error) {
 		c, previous, err := loadForWrite(tx, campaignID, cmd.CommandMeta)
 		if err != nil {
 			return MutationResult{}, err
@@ -105,6 +109,10 @@ func (s *Service) ReopenCheck(ctx context.Context, campaignID string, cmd Reopen
 		}
 		return MutationResult{CampaignID: c.ID, ResourceID: check.ID, Status: c.Status, Version: c.ExpectedVersion}, nil
 	})
+	if err == nil {
+		s.forgetCheckHistory(campaignID)
+	}
+	return result, err
 }
 
 func (s *Service) AddEvidence(ctx context.Context, campaignID, exceptionID string, cmd AddEvidenceCommand) (MutationResult, error) {
@@ -250,6 +258,37 @@ type CheckHistoryResult struct {
 	Difference *CheckDifference      `json:"difference,omitempty"`
 }
 
+type checkHistoryCacheKey struct {
+	campaignID string
+	limit      int
+	offset     int
+	fromID     string
+	toID       string
+}
+
+func (s *Service) cachedCheckHistory(key checkHistoryCacheKey) (CheckHistoryResult, bool) {
+	s.historyMu.RLock()
+	defer s.historyMu.RUnlock()
+	result, ok := s.historyCache[key]
+	return result, ok
+}
+
+func (s *Service) rememberCheckHistory(key checkHistoryCacheKey, result CheckHistoryResult) {
+	s.historyMu.Lock()
+	defer s.historyMu.Unlock()
+	s.historyCache[key] = result
+}
+
+func (s *Service) forgetCheckHistory(campaignID string) {
+	s.historyMu.Lock()
+	defer s.historyMu.Unlock()
+	for key := range s.historyCache {
+		if key.campaignID == campaignID {
+			delete(s.historyCache, key)
+		}
+	}
+}
+
 func failedRefs(q domain.QualityCheck) map[string]FailureRef {
 	m := map[string]FailureRef{}
 	for _, r := range q.Results {
@@ -265,6 +304,10 @@ func (s *Service) CheckHistory(ctx context.Context, campaignID string, limit, of
 	}
 	if offset < 0 {
 		offset = 0
+	}
+	key := checkHistoryCacheKey{campaignID: campaignID, limit: limit, offset: offset, fromID: fromID, toID: toID}
+	if cached, ok := s.cachedCheckHistory(key); ok {
+		return cached, nil
 	}
 	result := CheckHistoryResult{Limit: limit, Offset: offset}
 	err := s.repo.View(ctx, func(tx *store.TxStore) error {
@@ -319,5 +362,9 @@ func (s *Service) CheckHistory(ctx context.Context, campaignID string, limit, of
 		d.Passed = append([]FailureRef(nil), d.ResolvedFailures...)
 		return nil
 	})
-	return result, err
+	if err != nil {
+		return CheckHistoryResult{}, err
+	}
+	s.rememberCheckHistory(key, result)
+	return result, nil
 }

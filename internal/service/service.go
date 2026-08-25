@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"groundwater-release/internal/audit"
@@ -12,13 +13,20 @@ import (
 )
 
 type Service struct {
-	repo  *store.Repository
-	now   func() time.Time
-	newID func() string
+	repo         *store.Repository
+	now          func() time.Time
+	newID        func() string
+	historyMu    sync.RWMutex
+	historyCache map[checkHistoryCacheKey]CheckHistoryResult
 }
 
 func New(repo *store.Repository) *Service {
-	return &Service{repo: repo, now: time.Now, newID: randomID}
+	return &Service{
+		repo:         repo,
+		now:          time.Now,
+		newID:        randomID,
+		historyCache: make(map[checkHistoryCacheKey]CheckHistoryResult),
+	}
 }
 
 func randomID() string {
